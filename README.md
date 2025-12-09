@@ -13,79 +13,29 @@ We created the python package called `PLKD` that uses `scanpy` ans `torch` to ex
 ### Create environment
 
 ```
-conda create -n PLKD python=3.8 scanpy
+conda create -n PLKD python=3.8
 conda activate PLKD
 conda install pytorch=1.7.1 torchvision=0.8.2 torchaudio=0.7.2 cudatoolkit=10.1 -c pytorch
+pip install matplotlib==3.5.1
+pip install scanpy==1.9.8
 ```
 
-### Installation
+# Quick Start
+We provide a ready-to-run end-to-end example in `test/tutorial.py`, covering Teacher training, Student distillation, and Student prediction.
 
-The `PLKD` python package is in the folder PLKD. You can simply install it from the root of this repository using
-
-```
-pip install .
-```
-
-Alternatively, you can also install the package directly from GitHub via
-
-```
-pip install git+https://github.com/JackieHanLab/PLKD.git
+```bash 
+python test/tutorial.py
 ```
 
-## Usage
+Script Functions:
 
-### Step 1: Training the model
+- Automatically generate synthetic data with Celltype labels;
 
-```py
-PLKD.train(ref_adata, gmt_path,project=<my_project>,label_name=<label_key>)
-```
+- Train PLKD (Teacher + Student), saving the output to `./PLKD_tutorial/`;
 
-#### Input:
+- Predict the query set using the latest Student weights and write the results to `test/demo_plkd_prediction.h5ad`;
 
-+ `ref_adata`: an `AnnData` object of reference dataset.
-+ `gmt_path` : default pre-prepared mask or path to .gmt files.
-+ `<my_project>`: the model will be saved in a folder named <my_project>. Default: `<gmt_path>_20xxxxxx`.
-+ `<label_key>`: the name of the label column in `ref_adata.obs`.
+- Provide the prediction accuracy and compute the latent representation of the UMAP, writing the coordinates back to AnnData and additionally outputting `test/demo_plkd_umap.pdf`.
 
-#### Pre-prepared mask:
-
-+ `human_gobp` : GO_bp.gmt
-+ `human_immune` : immune.gmt
-+ `human_reactome` : reactome.gmt
-+ `human_tf` : TF.gmt
-+ `mouse_gobp` : m_GO_bp.gmt
-+ `mouse_reactome` : m_reactome.gmt
-+ `mouse_tf` : m_TF.gmt
-
-#### Output:
-
-+ `./my_project/mask.npy` : Mask matrix
-+ `./my_project/pathway.csv` : Gene set list
-+ `./my_project/label_dictionary.csv` : Label list
-+ `./my_project/model-n.pth` : Weights
-
-### Step 2: Prediect by the model
-
-```py
-new_adata = PLKD.pre(query_adata, model_weight_path = <path to optional weight>,project=<my_project>)
-```
-
-#### Input:
-
-+ `query_adata`: an `AnnData` object of query dataset .
-+ `model_weight_path`: the weights generated during `scTrans.train`, like: `'./weights20220607/model-6.pth'`.
-+ `project`: name of the folder build in training step, like: `my_project` or `<gmt_path>_20xxxxxx`.
-
-#### Output:
-
-+ `new_adata.X` : Attention matrix
-+ `new_adata.obs['Prediction']` : Predicted labels
-+ `new_adata.obs['Probability']` : Probability of the prediction
-+ `new_adata.var['pathway_index']` : Gene set of each colume
-+ `./my_project/gene2token_weights.csv` : The weights matrix of genes to tokens
-
-> the `var_names` (genes) of the `ref_adata` and `query_adata` must be consistent and in the same order.
-> ```
-> query_adata = query_adata[:,ref_adata.var_names]
-> ```
-> Please run the code to make sure they are the same.  
+Or you can use the real-data in `test/`, the separate single-cell atlases (demo datasets):
+[https://1drv.ms/f/c/94a9f528230586fe/IgBnLK0axJkqR6ej9wQRq1XAAa5p3A4WS9wjXhKu8g29rsU?e=yADegF](https://1drv.ms/f/c/94a9f528230586fe/IgBnLK0axJkqR6ej9wQRq1XAAa5p3A4WS9wjXhKu8g29rsU?e=yADegF)
