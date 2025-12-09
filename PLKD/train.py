@@ -17,6 +17,7 @@ import torch.optim.lr_scheduler as lr_scheduler
 from torch.utils.tensorboard import SummaryWriter
 import time
 import platform
+import torch.nn.functional as F
 
 from .PLKD_model import scTrans_model as create_model
 from .PLKD_model import Student
@@ -164,7 +165,41 @@ def create_pathway_mask(feature_list, dict_pathway, add_missing=1, fully_connect
         p_mask = torch.Tensor(p_mask)
     return p_mask,np.array(pathway)
 
-def train_one_epoch(model, optimizer, data_loader, device, epoch):
+
+def divergence_clustering_loss(logits, embeddings, eps=1e-6):
+    """
+    Implements Eq.(5): divergence-based clustering loss that encourages class-wise orthogonality.
+    """
+    logits = logits.contiguous()
+    embeddings = embeddings.contiguous()
+    batch_size, num_classes = logits.shape
+    if batch_size < 2 or num_classes < 2:
+        return logits.new_zeros(())
+
+    # Similarity matrix S based on cell embeddings (Eq. definition of s_{i,j}).
+    pairwise_dist = torch.cdist(embeddings, embeddings, p=2)
+    sim_matrix = torch.exp(-(pairwise_dist ** 2))
+
+    # Y has shape [num_classes, batch]; YS precomputes Y * S for reuse.
+    logits_t = logits.transpose(0, 1)
+    y_s = torch.matmul(logits_t, sim_matrix)
+
+    loss = logits.new_zeros(())
+    for a in range(num_classes - 1):
+        ya = logits_t[a]
+        ya_s = y_s[a]
+        ya_norm = torch.dot(ya_s, ya) + eps
+        for b in range(a + 1, num_classes):
+            yb = logits_t[b]
+            yb_s = y_s[b]
+            yb_norm = torch.dot(yb_s, yb) + eps
+            numer = torch.dot(ya_s, yb)
+            denom = torch.sqrt(ya_norm * yb_norm) + eps
+            loss = loss + numer / denom
+
+    return loss / num_classes
+
+def train_one_epoch(model, optimizer, data_loader, device, epoch, divergence_weight=1.0):
     """
     Train the model and updata weights.
     """
@@ -178,10 +213,12 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch):
     for step, data in enumerate(data_loader):
         exp, label = data
         sample_num += exp.shape[0]
-        _,pred,_ = model(exp.to(device))
+        latent,pred,_ = model(exp.to(device))
         pred_classes = torch.max(pred, dim=1)[1]
         accu_num += torch.eq(pred_classes, label.to(device)).sum()
-        loss = loss_function(pred, label.to(device))
+        ce_loss = loss_function(pred, label.to(device))
+        div_loss = divergence_clustering_loss(pred, latent) if divergence_weight > 0 else torch.zeros_like(ce_loss)
+        loss = ce_loss + divergence_weight * div_loss
         loss.backward()
         accu_loss += loss.detach()
         data_loader.desc = "[train epoch {}] loss: {:.3f}, acc: {:.3f}".format(epoch,
@@ -195,7 +232,7 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch):
     return accu_loss.item() / (step + 1), accu_num.item() / sample_num
 
 @torch.no_grad()
-def evaluate(model, data_loader, device, epoch):
+def evaluate(model, data_loader, device, epoch, divergence_weight=1.0):
     model.eval()
     loss_function = torch.nn.CrossEntropyLoss()
     accu_num = torch.zeros(1).to(device)
@@ -205,17 +242,19 @@ def evaluate(model, data_loader, device, epoch):
     for step, data in enumerate(data_loader):
         exp, labels = data
         sample_num += exp.shape[0]
-        _,pred,_ = model(exp.to(device))
+        latent,pred,_ = model(exp.to(device))
         pred_classes = torch.max(pred, dim=1)[1]
         accu_num += torch.eq(pred_classes, labels.to(device)).sum()
-        loss = loss_function(pred, labels.to(device))
+        ce_loss = loss_function(pred, labels.to(device))
+        div_loss = divergence_clustering_loss(pred, latent) if divergence_weight > 0 else torch.zeros_like(ce_loss)
+        loss = ce_loss + divergence_weight * div_loss
         accu_loss += loss
         data_loader.desc = "[valid epoch {}] loss: {:.3f}, acc: {:.3f}".format(epoch,
                                                                                accu_loss.item() / (step + 1),
                                                                                accu_num.item() / sample_num)
     return accu_loss.item() / (step + 1), accu_num.item() / sample_num
 
-def fit_model(adata, gmt_path, project = None, pre_weights='', label_name='Celltype',max_g=300,max_gs=300, mask_ratio = 0.015,n_unannotated = 1,batch_size=8, embed_dim=48,depth=2,num_heads=4,lr=0.001, epochs= 10, lrf=0.01):
+def fit_model(adata, gmt_path, project = None, pre_weights='', label_name='Celltype',max_g=300,max_gs=300, mask_ratio = 0.015,n_unannotated = 1,batch_size=8, embed_dim=48,depth=2,num_heads=4,lr=0.001, epochs= 10, lrf=0.01, divergence_weight=1.0):
     GLOBAL_SEED = 1
     set_seed(GLOBAL_SEED)
     device = 'cuda:0'
@@ -286,12 +325,14 @@ def fit_model(adata, gmt_path, project = None, pre_weights='', label_name='Cellt
                                                 optimizer=optimizer,
                                                 data_loader=train_loader,
                                                 device=device,
-                                                epoch=epoch)
+                                                epoch=epoch,
+                                                divergence_weight=divergence_weight)
         scheduler.step() 
         val_loss, val_acc = evaluate(model=model,
                                      data_loader=valid_loader,
                                      device=device,
-                                     epoch=epoch)
+                                     epoch=epoch,
+                                     divergence_weight=divergence_weight)
         tags = ["train_loss", "train_acc", "val_loss", "val_acc", "learning_rate"]
         tb_writer.add_scalar(tags[0], train_loss, epoch)
         tb_writer.add_scalar(tags[1], train_acc, epoch)
@@ -304,7 +345,19 @@ def fit_model(adata, gmt_path, project = None, pre_weights='', label_name='Cellt
             torch.save(model.state_dict(), "/%s"%project_path+"/model-{}.pth".format(epoch))
     print('Training finished!')
 
-def train_one_epoch_kd(teacher, student, optimizer, data_loader, device, epoch, alpha=0.5, temperature=4.0):
+def self_entropy_loss(logits, eps=1e-6):
+    """
+    Implements Eq.(8): self entropy loss based on average student logits.
+    """
+    if logits.ndim != 2:
+        raise ValueError("Self entropy expects logits with shape [batch, num_classes].")
+    mean_logits = logits.mean(dim=0)
+    prob = F.softmax(mean_logits, dim=0)
+    entropy = -(prob * torch.log(prob + eps)).sum()
+    return entropy / prob.shape[0]
+
+
+def train_one_epoch_kd(teacher, student, optimizer, data_loader, device, epoch, alpha=0.5, temperature=4.0, self_entropy_weight=1.0):
     teacher.eval()
     student.train()
     loss_ce = torch.nn.CrossEntropyLoss()
@@ -334,7 +387,8 @@ def train_one_epoch_kd(teacher, student, optimizer, data_loader, device, epoch, 
         kl_loss = loss_kl(log_soft_student, soft_targets) * (temperature ** 2)
         ce_loss = loss_ce(s_logits, label)
         
-        loss = alpha * kl_loss + (1 - alpha) * ce_loss
+        entropy_loss = self_entropy_loss(s_logits) if self_entropy_weight > 0 else torch.zeros_like(kl_loss)
+        loss = alpha * kl_loss + (1 - alpha) * ce_loss + self_entropy_weight * entropy_loss
         
         loss.backward()
         optimizer.step()
@@ -371,7 +425,7 @@ def evaluate_student(model, data_loader, device, epoch):
                                                                                accu_num.item() / sample_num)
     return accu_loss.item() / (step + 1), accu_num.item() / sample_num
 
-def fit_PLKD(adata, gmt_path, project=None, pre_weights='', label_name='Celltype', max_g=300, max_gs=300, mask_ratio=0.015, n_unannotated=1, batch_size=8, embed_dim=48, depth=2, num_heads=4, lr=0.001, epochs=10, lrf=0.01, alpha=0.5, temperature=4.0, student_hidden=[256, 128], student_dropout=0.1):
+def fit_PLKD(adata, gmt_path, project=None, pre_weights='', label_name='Celltype', max_g=300, max_gs=300, mask_ratio=0.015, n_unannotated=1, batch_size=8, embed_dim=48, depth=2, num_heads=4, lr=0.001, epochs=10, lrf=0.01, alpha=0.5, temperature=4.0, student_hidden=[256, 128], student_dropout=0.1, divergence_weight=1.0, self_entropy_weight=1.0):
     # Reuse logic from fit_model for setup
     GLOBAL_SEED = 1
     set_seed(GLOBAL_SEED)
@@ -439,9 +493,9 @@ def fit_PLKD(adata, gmt_path, project=None, pre_weights='', label_name='Celltype
         scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lf)
         
         for epoch in range(epochs): # Using same epochs for teacher as default
-            train_loss, train_acc = train_one_epoch(teacher, optimizer, train_loader, device, epoch)
+            train_loss, train_acc = train_one_epoch(teacher, optimizer, train_loader, device, epoch, divergence_weight=divergence_weight)
             scheduler.step()
-            val_loss, val_acc = evaluate(teacher, valid_loader, device, epoch)
+            val_loss, val_acc = evaluate(teacher, valid_loader, device, epoch, divergence_weight=divergence_weight)
             # Save teacher if needed, skipping for brevity in this block or save last
         
         torch.save(teacher.state_dict(), project_path+"/teacher_model.pth")
@@ -457,7 +511,7 @@ def fit_PLKD(adata, gmt_path, project=None, pre_weights='', label_name='Celltype
     
     print('Starting Distillation...')
     for epoch in range(epochs):
-        train_loss, train_acc = train_one_epoch_kd(teacher, student, optimizer_s, train_loader, device, epoch, alpha, temperature)
+        train_loss, train_acc = train_one_epoch_kd(teacher, student, optimizer_s, train_loader, device, epoch, alpha, temperature, self_entropy_weight=self_entropy_weight)
         # scheduler_s.step()
         val_loss, val_acc = evaluate_student(student, valid_loader, device, epoch)
         

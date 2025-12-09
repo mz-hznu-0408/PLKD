@@ -3,10 +3,14 @@ PLKD (Projection Learning Knowledge Distillation)
 """
 
 try:
-    from importlib.metadata import version
+    from importlib.metadata import version, PackageNotFoundError
 except ModuleNotFoundError:
-    from pkg_resources import get_distribution
-    version = lambda name: get_distribution(name).version
+    from pkg_resources import get_distribution, DistributionNotFound
+
+    def version(name):
+        return get_distribution(name).version
+
+    PackageNotFoundError = DistributionNotFound
 
 from . import train, pre, PLKD_model
 from .train import fit_model, fit_PLKD
@@ -14,10 +18,13 @@ from .pre import prediect, predict_student
 import os
 
 name = "PLKD"
-__version__ = version(name)
+try:
+    __version__ = version(name)
+except PackageNotFoundError:
+    __version__ = "0.0.0"
 
 
-def train(adata, gmt_path, project=None,pre_weights='', label_name='Celltype',max_g=300,max_gs=300,mask_ratio =0.015, n_unannotated = 1,batch_size=8, embed_dim=48,depth=2,num_heads=4,lr=0.001, epochs= 10, lrf=0.01):
+def train(adata, gmt_path, project=None,pre_weights='', label_name='Celltype',max_g=300,max_gs=300,mask_ratio =0.015, n_unannotated = 1,batch_size=8, embed_dim=48,depth=2,num_heads=4,lr=0.001, epochs= 10, lrf=0.01, divergence_weight=1.0):
     r"""
     Fit the model with reference data
     Parameters
@@ -67,10 +74,11 @@ def train(adata, gmt_path, project=None,pre_weights='', label_name='Celltype',ma
     """
     fit_model(adata, gmt_path, project=project,pre_weights=pre_weights, label_name=label_name,
               max_g=max_g,max_gs=max_gs,mask_ratio=mask_ratio, n_unannotated = n_unannotated,batch_size=batch_size, 
-              embed_dim=embed_dim,depth=depth,num_heads=num_heads,lr=lr, epochs= epochs, lrf=lrf)
+              embed_dim=embed_dim,depth=depth,num_heads=num_heads,lr=lr, epochs= epochs, lrf=lrf,
+              divergence_weight=divergence_weight)
 
 
-def train_plkd(adata, gmt_path, project=None, pre_weights='', label_name='Celltype', max_g=300, max_gs=300, mask_ratio=0.015, n_unannotated=1, batch_size=8, embed_dim=48, depth=2, num_heads=4, lr=0.001, epochs=10, lrf=0.01, alpha=0.5, temperature=4.0, student_hidden=[256, 128], student_dropout=0.1):
+def train_plkd(adata, gmt_path, project=None, pre_weights='', label_name='Celltype', max_g=300, max_gs=300, mask_ratio=0.015, n_unannotated=1, batch_size=8, embed_dim=48, depth=2, num_heads=4, lr=0.001, epochs=10, lrf=0.01, alpha=0.5, temperature=4.0, student_hidden=[256, 128], student_dropout=0.1, divergence_weight=1.0, self_entropy_weight=1.0):
     r"""
     Fit the PLKD model (Teacher-Student Distillation).
     Parameters
@@ -109,7 +117,8 @@ def train_plkd(adata, gmt_path, project=None, pre_weights='', label_name='Cellty
     fit_PLKD(adata, gmt_path, project=project, pre_weights=pre_weights, label_name=label_name,
              max_g=max_g, max_gs=max_gs, mask_ratio=mask_ratio, n_unannotated=n_unannotated, batch_size=batch_size,
              embed_dim=embed_dim, depth=depth, num_heads=num_heads, lr=lr, epochs=epochs, lrf=lrf,
-             alpha=alpha, temperature=temperature, student_hidden=student_hidden, student_dropout=student_dropout)
+             alpha=alpha, temperature=temperature, student_hidden=student_hidden, student_dropout=student_dropout,
+             divergence_weight=divergence_weight, self_entropy_weight=self_entropy_weight)
 
 
 def pre(adata,model_weight_path,project,laten=False,save_att = 'X_att', save_lantent = 'X_lat',n_step=10000,cutoff=0.1,n_unannotated = 1,batch_size=50,embed_dim=48,depth=2,num_heads=4):
