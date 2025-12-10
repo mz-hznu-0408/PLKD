@@ -25,21 +25,8 @@ Due to GitHub file size limitations, these dataset files are hosted on OneDrive:
 2. Place the downloaded files in this `test/` directory
 3. Run the tutorial script:
    ```bash
-   python3 tutorial.py
+   python tutorial.py
    ```
-
-## Automatic Data Generation
-
-The `tutorial.py` script includes an automatic data generation feature:
-- If `demo_train.h5ad` and `demo_test.h5ad` are missing, the script will create synthetic datasets
-- If `demo_base_profiles.npy` is present, it will use these profiles for generating consistent synthetic data
-- If `demo_base_profiles.npy` is missing, the script will create new base profiles
-
-## Other Required Files
-
-The script also uses built-in GMT (Gene Set Matrix) files that are already included in the PLKD package:
-- Located in `PLKD/resources/` directory
-- The tutorial uses `human_gobp` by default
 
 ## Note
 
