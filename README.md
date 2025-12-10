@@ -39,3 +39,5 @@ Script Functions:
 
 Or you can use the real-data in `test/`, the separate single-cell atlases (demo datasets):
 [https://1drv.ms/f/c/94a9f528230586fe/IgBnLK0axJkqR6ej9wQRq1XAAa5p3A4WS9wjXhKu8g29rsU?e=yADegF](https://1drv.ms/f/c/94a9f528230586fe/IgBnLK0axJkqR6ej9wQRq1XAAa5p3A4WS9wjXhKu8g29rsU?e=yADegF)
+
+When running the [`tutorial.py`](test/tutorial.py), you can read the [`test/README.md`](test/README.md) for more details.
