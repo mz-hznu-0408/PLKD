@@ -21,7 +21,7 @@ Due to GitHub file size limitations, these dataset files are hosted on OneDrive:
 
 ## Usage
 
-1. Download the dataset files from the provided OneDrive link (optional)
+1. Download the dataset files from the provided OneDrive link
 2. Place the downloaded files in this `test/` directory
 3. Run the tutorial script:
    ```bash
