@@ -7,7 +7,7 @@ This directory contains a tutorial for the PLKD (Projection Learning Knowledge D
 
 When running the `tutorial.py` script, it uses the following files:
 
-### Required Files (Optional)
+### Required Files
 These files are used for training and testing the PLKD model:
 - `demo_train.h5ad` - Training dataset
 - `demo_test.h5ad` - Testing dataset
@@ -27,7 +27,3 @@ Due to GitHub file size limitations, these dataset files are hosted on OneDrive:
    ```bash
    python tutorial.py
    ```
-
-## Note
-
-While the tutorial can run with automatically generated synthetic data, using the provided real datasets will yield better demonstration results and more accurate performance evaluation.
